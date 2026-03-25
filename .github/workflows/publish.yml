@@ -46,7 +46,7 @@ jobs:
         run: |
           git add package.json package-lock.json
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "chore(release): v${{ steps.version.outputs.version }}"
-          git tag "v${{ steps.version.outputs.version }}"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "v${{ steps.version.outputs.version }}"
 
       - name: Publish to npm
         env:
