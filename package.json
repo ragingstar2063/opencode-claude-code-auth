@@ -1,6 +1,6 @@
 {
   "name": "opencode-claude-code-auth",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "OpenCode plugin that brings back Anthropic auth — Claude Code session, browser OAuth, or API key",
   "type": "module",
   "license": "MIT",
