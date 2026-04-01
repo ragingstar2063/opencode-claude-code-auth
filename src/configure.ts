@@ -3,19 +3,12 @@ import os from "node:os"
 import path from "node:path"
 import { createInterface } from "node:readline/promises"
 import { stdin, stdout } from "node:process"
-import { applyEdits, modify, parse, printParseErrorCode, type ParseError } from "jsonc-parser"
 
 export type Opts = {
   cwd: string
   file?: string
   global?: boolean
   yes?: boolean
-}
-
-const fmt = {
-  insertSpaces: true,
-  tabSize: 2,
-  eol: "\n",
 }
 
 const block = {
@@ -54,19 +47,126 @@ async function exists(file: string) {
   }
 }
 
-function fail(err: ParseError[]) {
-  const first = err[0]
-  return new Error(`Config parse error: ${printParseErrorCode(first.error)} at offset ${first.offset}`)
+function fail(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err)
+  return new Error(`Config parse error: ${msg}`)
+}
+
+function stripComments(text: string) {
+  let out = ""
+  let quote = false
+  let escape = false
+  let line = false
+  let block = false
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    const next = text[i + 1]
+
+    if (line) {
+      if (char === "\n") {
+        line = false
+        out += char
+      }
+      continue
+    }
+
+    if (block) {
+      if (char === "*" && next === "/") {
+        block = false
+        i++
+        continue
+      }
+      if (char === "\n") out += char
+      continue
+    }
+
+    if (quote) {
+      out += char
+      if (escape) {
+        escape = false
+        continue
+      }
+      if (char === "\\") {
+        escape = true
+        continue
+      }
+      if (char === '"') quote = false
+      continue
+    }
+
+    if (char === '"') {
+      quote = true
+      out += char
+      continue
+    }
+
+    if (char === "/" && next === "/") {
+      line = true
+      i++
+      continue
+    }
+
+    if (char === "/" && next === "*") {
+      block = true
+      i++
+      continue
+    }
+
+    out += char
+  }
+
+  return out
+}
+
+function stripTrailing(text: string) {
+  let out = ""
+  let quote = false
+  let escape = false
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+
+    if (quote) {
+      out += char
+      if (escape) {
+        escape = false
+        continue
+      }
+      if (char === "\\") {
+        escape = true
+        continue
+      }
+      if (char === '"') quote = false
+      continue
+    }
+
+    if (char === '"') {
+      quote = true
+      out += char
+      continue
+    }
+
+    if (char === ",") {
+      let j = i + 1
+      while (j < text.length && /\s/.test(text[j])) j++
+      if (text[j] === "}" || text[j] === "]") continue
+    }
+
+    out += char
+  }
+
+  return out
 }
 
 function load(text: string) {
-  const err: ParseError[] = []
-  const value = parse(text, err, {
-    allowTrailingComma: true,
-    disallowComments: false,
-  })
-  if (err.length) throw fail(err)
-  return (value ?? {}) as Record<string, unknown>
+  try {
+    const value = JSON.parse(stripTrailing(stripComments(text))) as unknown
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+    return value as Record<string, unknown>
+  } catch (err) {
+    throw fail(err)
+  }
 }
 
 function get(value: unknown, keys: string[]) {
@@ -77,12 +177,9 @@ function get(value: unknown, keys: string[]) {
 }
 
 function set(text: string, keys: string[], value: unknown) {
-  return applyEdits(
-    text,
-    modify(text, keys, value, {
-      formattingOptions: fmt,
-    }),
-  )
+  const next = load(text)
+  push(next, keys, value)
+  return `${JSON.stringify(next, null, 2)}\n`
 }
 
 function push(value: Record<string, unknown>, keys: string[], next: unknown) {
